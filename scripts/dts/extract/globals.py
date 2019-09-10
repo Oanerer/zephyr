@@ -5,6 +5,12 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
+# NOTE: This file is part of the old device tree scripts, which will be removed
+# later. They are kept to generate some legacy #defines via the
+# --deprecated-only flag.
+#
+# The new scripts are gen_defines.py, edtlib.py, and dtlib.py.
+
 import sys
 
 from collections import defaultdict
@@ -24,7 +30,8 @@ old_alias_names = False
 
 regs_config = {
     'zephyr,sram'  : 'DT_SRAM',
-    'zephyr,ccm'   : 'DT_CCM'
+    'zephyr,ccm'   : 'DT_CCM',
+    'zephyr,dtcm'  : 'DT_DTCM'
 }
 
 name_config = {
@@ -44,6 +51,7 @@ def str_to_label(s):
             .replace(',', '_') \
             .replace('@', '_') \
             .replace('/', '_') \
+            .replace('.', '_') \
             .replace('+', 'PLUS') \
             .upper()
 
@@ -144,7 +152,7 @@ def create_reduced(node, path):
     # Assign an instance ID for each compat
     compat = node['props'].get('compatible')
     if compat:
-        if type(compat) is not list:
+        if not isinstance(compat, list):
             compat = [compat]
 
         reduced[path]['instance_id'] = {}
@@ -178,7 +186,7 @@ def node_label(node_path):
             unit_addr += translate_addr(unit_addr, node_path,
                          nr_addr_cells, nr_size_cells)
             unit_addr = "%x" % unit_addr
-        except:
+        except Exception:
             unit_addr = node_path.split('@')[-1]
         def_label += '_' + str_to_label(unit_addr)
     else:
@@ -325,6 +333,11 @@ def build_cell_array(prop_array):
     index = 0
     ret_array = []
 
+    if isinstance(prop_array, int):
+        # Work around old code generating an integer for e.g.
+        # 'pwms = <&foo>'
+        prop_array = [prop_array]
+
     while index < len(prop_array):
         handle = prop_array[index]
 
@@ -435,13 +448,6 @@ def extract_controller(node_path, prop, prop_values, index,
         else:
             l_idx = [str(i)]
 
-        # Check node generation requirements
-        try:
-            generation = get_binding(node_path)['properties'
-                    ][prop]['generation']
-        except:
-            generation = ''
-
         l_cellname = str_to_label(generic + '_' + 'controller')
 
         label = l_base + [l_cellname] + l_idx
@@ -499,7 +505,7 @@ def extract_cells(node_path, prop, prop_values, names, index,
 
         try:
             name = names.pop(0).upper()
-        except:
+        except Exception:
             name = ''
 
         # Get number of cells per element of current property
@@ -509,11 +515,6 @@ def extract_cells(node_path, prop, prop_values, names, index,
                     cell_yaml_names = props
                 else:
                     cell_yaml_names = '#cells'
-        try:
-            generation = get_binding(node_path)['properties'][prop
-                    ]['generation']
-        except:
-            generation = ''
 
         l_cell = [str_to_label(str(generic))]
 

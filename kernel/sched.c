@@ -297,6 +297,8 @@ void z_time_slice(int ticks)
 		} else {
 			_current_cpu->slice_ticks -= ticks;
 		}
+	} else {
+		_current_cpu->slice_ticks = 0;
 	}
 }
 #else
@@ -475,7 +477,10 @@ void z_unpend_thread(struct k_thread *thread)
 	(void)z_abort_thread_timeout(thread);
 }
 
-void z_thread_priority_set(struct k_thread *thread, int prio)
+/* Priority set utility that does no rescheduling, it just changes the
+ * run queue state, returning true if a reschedule is needed later.
+ */
+bool z_set_prio(struct k_thread *thread, int prio)
 {
 	bool need_sched = 0;
 
@@ -483,15 +488,27 @@ void z_thread_priority_set(struct k_thread *thread, int prio)
 		need_sched = z_is_thread_ready(thread);
 
 		if (need_sched) {
-			_priq_run_remove(&_kernel.ready_q.runq, thread);
-			thread->base.prio = prio;
-			_priq_run_add(&_kernel.ready_q.runq, thread);
+			/* Don't requeue on SMP if it's the running thread */
+			if (!IS_ENABLED(CONFIG_SMP) || z_is_thread_queued(thread)) {
+				_priq_run_remove(&_kernel.ready_q.runq, thread);
+				thread->base.prio = prio;
+				_priq_run_add(&_kernel.ready_q.runq, thread);
+			} else {
+				thread->base.prio = prio;
+			}
 			update_cache(1);
 		} else {
 			thread->base.prio = prio;
 		}
 	}
 	sys_trace_thread_priority_set(thread);
+
+	return need_sched;
+}
+
+void z_thread_priority_set(struct k_thread *thread, int prio)
+{
+	bool need_sched = z_set_prio(thread, prio);
 
 	if (IS_ENABLED(CONFIG_SMP) &&
 	    !IS_ENABLED(CONFIG_SCHED_IPI_SUPPORTED)) {
@@ -548,7 +565,7 @@ void k_sched_unlock(void)
 
 	LOCKED(&sched_spinlock) {
 		++_current->base.sched_locked;
-		update_cache(1);
+		update_cache(0);
 	}
 
 	K_DEBUG("scheduler unlocked (%p:%d)\n",

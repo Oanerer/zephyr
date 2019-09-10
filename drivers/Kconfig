@@ -27,8 +27,6 @@ source "drivers/timer/Kconfig"
 
 source "drivers/entropy/Kconfig"
 
-source "drivers/pci/Kconfig"
-
 source "drivers/pcie/Kconfig"
 
 source "drivers/gpio/Kconfig"
@@ -56,8 +54,6 @@ source "drivers/clock_control/Kconfig"
 source "drivers/ptp_clock/Kconfig"
 
 source "drivers/ipm/Kconfig"
-
-source "drivers/aio/Kconfig"
 
 source "drivers/flash/Kconfig"
 
@@ -88,5 +84,7 @@ source "drivers/audio/Kconfig"
 source "drivers/neural_net/Kconfig"
 
 source "drivers/hwinfo/Kconfig"
+
+source "drivers/espi/Kconfig"
 
 endmenu

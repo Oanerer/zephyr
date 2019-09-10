@@ -69,7 +69,8 @@ static s32_t elapsed(void)
 static s32_t next_timeout(void)
 {
 	struct _timeout *to = first();
-	s32_t ret = to == NULL ? MAX_WAIT : MAX(0, to->dticks - elapsed());
+	s32_t ticks_elapsed = elapsed();
+	s32_t ret = to == NULL ? MAX_WAIT : MAX(0, to->dticks - ticks_elapsed);
 
 #ifdef CONFIG_TIMESLICING
 	if (_current_cpu->slice_ticks && _current_cpu->slice_ticks < ret) {
@@ -227,18 +228,6 @@ u32_t z_tick_get_32(void)
 	return (u32_t)curr_tick;
 #endif
 }
-
-u32_t z_impl_k_uptime_get_32(void)
-{
-	return __ticks_to_ms(z_tick_get_32());
-}
-
-#ifdef CONFIG_USERSPACE
-Z_SYSCALL_HANDLER(k_uptime_get_32)
-{
-	return z_impl_k_uptime_get_32();
-}
-#endif
 
 s64_t z_impl_k_uptime_get(void)
 {

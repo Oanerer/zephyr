@@ -24,6 +24,9 @@ SANITYCHECK_OPTIONS=" --inline-logs -N"
 SANITYCHECK_OPTIONS_RETRY="${SANITYCHECK_OPTIONS} --only-failed --outdir=out-2nd-pass"
 SANITYCHECK_OPTIONS_RETRY_2="${SANITYCHECK_OPTIONS} --only-failed --outdir=out-3nd-pass"
 export BSIM_OUT_PATH="${BSIM_OUT_PATH:-/opt/bsim/}"
+if [ ! -d "${BSIM_OUT_PATH}" ]; then
+        unset BSIM_OUT_PATH
+fi
 export BSIM_COMPONENTS_PATH="${BSIM_OUT_PATH}/components/"
 BSIM_BT_TEST_RESULTS_FILE="./bsim_bt_out/bsim_results.xml"
 WEST_COMMANDS_RESULTS_FILE="./pytest_out/west_commands.xml"
@@ -271,8 +274,7 @@ if [ -n "$MAIN_CI" ]; then
 		# run pytest could go here too.
 		PYTEST=$(type -p pytest-3 || echo "pytest")
 		mkdir -p $(dirname ${WEST_COMMANDS_RESULTS_FILE})
-		WEST_SRC=$(west list --format='{abspath}' west)/src
-		PYTHONPATH=./scripts/west_commands:$WEST_SRC "${PYTEST}" \
+		PYTHONPATH=./scripts/west_commands "${PYTEST}" \
 			  --junitxml=${WEST_COMMANDS_RESULTS_FILE} \
 			  ./scripts/west_commands/tests
 	else

@@ -23,7 +23,6 @@
 	};
 
 	sram0: memory@20000000 {
-		device_type = "memory";
 		compatible = "mmio-sram";
 	};
 
@@ -171,6 +170,7 @@
 			num-bidir-endpoints = <8>;
 			ram-size = <512>;
 			phys = <&usb_fs_phy>;
+			clocks = <&rcc STM32_CLOCK_BUS_APB1 0x00800000>;
 			status = "disabled";
 			label= "USB";
 		};
@@ -304,6 +304,7 @@
 			interrupts = <18 0>;
 			status = "disabled";
 			label = "ADC_1";
+			#io-channel-cells = <1>;
 		};
 	};
 

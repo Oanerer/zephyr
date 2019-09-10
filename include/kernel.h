@@ -17,6 +17,7 @@
 #include <kernel_includes.h>
 #include <errno.h>
 #include <stdbool.h>
+#include <toolchain.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -195,6 +196,7 @@ struct _k_object_assignment {
 #define K_OBJ_FLAG_INITIALIZED	BIT(0)
 #define K_OBJ_FLAG_PUBLIC	BIT(1)
 #define K_OBJ_FLAG_ALLOC	BIT(2)
+#define K_OBJ_FLAG_DRIVER	BIT(3)
 
 /**
  * Lookup a kernel object and init its metadata if it exists
@@ -254,7 +256,7 @@ static inline void k_object_access_all_grant(void *object)
 #endif /* !CONFIG_USERSPACE */
 
 /**
- * grant a thread access to a kernel object
+ * Grant a thread access to a kernel object
  *
  * The thread will be granted access to the object if the caller is from
  * supervisor mode, or the caller is from user mode AND has permissions
@@ -266,7 +268,7 @@ static inline void k_object_access_all_grant(void *object)
 __syscall void k_object_access_grant(void *object, struct k_thread *thread);
 
 /**
- * grant a thread access to a kernel object
+ * Revoke a thread's access to a kernel object
  *
  * The thread will lose access to the object if the caller is from
  * supervisor mode, or the caller is from user mode AND has permissions
@@ -281,7 +283,7 @@ void k_object_access_revoke(void *object, struct k_thread *thread);
 __syscall void k_object_release(void *object);
 
 /**
- * grant all present and future threads access to an object
+ * Grant all present and future threads access to an object
  *
  * If the caller is from supervisor mode, or the caller is from user mode and
  * have sufficient permissions on the object, then that object will have
@@ -1338,6 +1340,16 @@ __syscall int k_thread_name_copy(k_tid_t thread_id, char *buf,
 				 size_t size);
 
 /**
+ * @brief Get thread state string
+ *
+ * Get the human friendly thread state string
+ *
+ * @param thread_id Thread ID
+ * @retval Thread state string, empty if no state flag is set
+ */
+const char *k_thread_state_str(k_tid_t thread_id);
+
+/**
  * @}
  */
 
@@ -1728,13 +1740,14 @@ __deprecated static inline void k_disable_sys_clock_always_on(void)
 /**
  * @brief Get system uptime (32-bit version).
  *
- * This routine returns the lower 32-bits of the elapsed time since the system
- * booted, in milliseconds.
+ * This routine returns the lower 32 bits of the system uptime in
+ * milliseconds.
  *
- * This routine can be more efficient than k_uptime_get(), as it reduces the
- * need for interrupt locking and 64-bit math. However, the 32-bit result
- * cannot hold a system uptime time larger than approximately 50 days, so the
- * caller must handle possible rollovers.
+ * Because correct conversion requires full precision of the system
+ * clock there is no benefit to using this over k_uptime_get() unless
+ * you know the application will never run long enough for the system
+ * clock to approach 2^32 ticks.  Calls to this function may involve
+ * interrupt blocking and 64-bit math.
  *
  * @note
  *    @rst
@@ -1743,9 +1756,12 @@ __deprecated static inline void k_disable_sys_clock_always_on(void)
  *    :option:`CONFIG_SYS_CLOCK_TICKS_PER_SEC` config option
  *    @endrst
  *
- * @return Current uptime in milliseconds.
+ * @return The low 32 bits of the current uptime, in milliseconds.
  */
-__syscall u32_t k_uptime_get_32(void);
+static inline u32_t k_uptime_get_32(void)
+{
+	return (u32_t)k_uptime_get();
+}
 
 /**
  * @brief Get elapsed time.
@@ -4657,8 +4673,7 @@ extern void z_sys_power_save_idle_exit(s32_t ticks);
  */
 #define z_except_reason(reason) do { \
 		printk("@ %s:%d:\n", __FILE__,  __LINE__); \
-		z_NanoFatalErrorHandler(reason, &_default_esf); \
-		k_thread_abort(k_current_get()); \
+		z_fatal_error(reason, NULL); \
 	} while (false)
 
 #endif /* _ARCH__EXCEPT */
@@ -4669,13 +4684,13 @@ extern void z_sys_power_save_idle_exit(s32_t ticks);
  * This should be called when a thread has encountered an unrecoverable
  * runtime condition and needs to terminate. What this ultimately
  * means is determined by the _fatal_error_handler() implementation, which
- * will be called will reason code _NANO_ERR_KERNEL_OOPS.
+ * will be called will reason code K_ERR_KERNEL_OOPS.
  *
  * If this is called from ISR context, the default system fatal error handler
  * will treat it as an unrecoverable system error, just like k_panic().
  * @req K-MISC-003
  */
-#define k_oops()	z_except_reason(_NANO_ERR_KERNEL_OOPS)
+#define k_oops()	z_except_reason(K_ERR_KERNEL_OOPS)
 
 /**
  * @brief Fatally terminate the system
@@ -4683,10 +4698,10 @@ extern void z_sys_power_save_idle_exit(s32_t ticks);
  * This should be called when the Zephyr kernel has encountered an
  * unrecoverable runtime condition and needs to terminate. What this ultimately
  * means is determined by the _fatal_error_handler() implementation, which
- * will be called will reason code _NANO_ERR_KERNEL_PANIC.
+ * will be called will reason code K_ERR_KERNEL_PANIC.
  * @req K-MISC-004
  */
-#define k_panic()	z_except_reason(_NANO_ERR_KERNEL_PANIC)
+#define k_panic()	z_except_reason(K_ERR_KERNEL_PANIC)
 
 /*
  * private APIs that are utilized by one or more public APIs
@@ -4917,6 +4932,9 @@ struct k_mem_domain {
  *
  * Initialize a memory domain with given name and memory partitions.
  *
+ * See documentation for k_mem_domain_add_partition() for details about
+ * partition constraints.
+ *
  * @param domain The memory domain to be initialized.
  * @param num_parts The number of array items of "parts" parameter.
  * @param parts An array of pointers to the memory partitions. Can be NULL
@@ -4938,7 +4956,22 @@ extern void k_mem_domain_destroy(struct k_mem_domain *domain);
 /**
  * @brief Add a memory partition into a memory domain.
  *
- * Add a memory partition into a memory domain.
+ * Add a memory partition into a memory domain. Partitions must conform to
+ * the following constraints:
+ *
+ * - Partition bounds must be within system RAM boundaries on MMU-based
+ *   systems.
+ * - Partitions in the same memory domain may not overlap each other.
+ * - Partitions must not be defined which expose private kernel
+ *   data structures or kernel objects.
+ * - The starting address alignment, and the partition size must conform to
+ *   the constraints of the underlying memory management hardware, which
+ *   varies per architecture.
+ * - Memory domain partitions are only intended to control access to memory
+ *   from user mode threads.
+ *
+ * Violating these constraints may lead to CPU exceptions or undefined
+ * behavior.
  *
  * @param domain The memory domain to be added a memory partition.
  * @param part The memory partition to be added
